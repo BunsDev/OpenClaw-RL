@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 
 type RlTrainingConfig = {
@@ -18,10 +19,7 @@ const SIDE_TRIGGERS = new Set(["heartbeat", "memory", "cron"]);
 
 export default function register(api: OpenClawPluginApi) {
   const config = resolveConfig(api);
-
-  // Pending headers to inject into the next LLM fetch request.
-  // Set during before_prompt_build, consumed by the patched fetch, cleared on agent_end.
-  let pendingHeaders: Record<string, string> | null = null;
+  const headerStore = new AsyncLocalStorage<Record<string, string>>();
 
   const originalFetch = globalThis.fetch;
 
@@ -29,10 +27,10 @@ export default function register(api: OpenClawPluginApi) {
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> {
-    if (pendingHeaders && init?.method?.toUpperCase() === "POST") {
-      const extra = pendingHeaders;
+    const scopedHeaders = headerStore.getStore();
+    if (scopedHeaders && init?.method?.toUpperCase() === "POST") {
       const merged = new Headers(init.headers);
-      for (const [k, v] of Object.entries(extra)) {
+      for (const [k, v] of Object.entries(scopedHeaders)) {
         // Plugin headers go first; per-request headers can still override.
         if (!merged.has(k)) {
           merged.set(k, v);
@@ -46,15 +44,11 @@ export default function register(api: OpenClawPluginApi) {
   api.on("before_prompt_build", (_event, ctx) => {
     const sessionId = ctx.sessionId ?? "";
     const turnType = SIDE_TRIGGERS.has(ctx.trigger ?? "") ? "side" : "main";
-    pendingHeaders = {
+    headerStore.enterWith({
       [config.sessionIdHeader]: sessionId,
       [config.turnTypeHeader]: turnType,
-    };
+    });
     return {};
-  });
-
-  api.on("agent_end", () => {
-    pendingHeaders = null;
   });
 
   api.logger.info("rl-training-headers: activated (fetch patched)");

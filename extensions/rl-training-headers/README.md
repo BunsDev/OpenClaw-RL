@@ -52,7 +52,7 @@ You can customize the header names in `~/.openclaw/openclaw.json` under `plugins
 
 The plugin hooks into the `before_prompt_build` lifecycle event to capture the current session ID and turn type (derived from the `trigger` field: `"user"` → `main`, `"heartbeat"` / `"memory"` / `"cron"` → `side`).
 
-It then patches `globalThis.fetch` to inject these headers into all outgoing POST requests during an active agent run. Headers are cleared after the agent run completes (`agent_end`).
+It then patches `globalThis.fetch` to inject these headers into outgoing POST requests during an active agent run. Header state is stored with async-local per-run context, so parallel sessions keep separate session IDs and turn types.
 
 ## Extracting training data
 
